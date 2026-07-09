@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<!-- The bot's media engine: a page (headless Chromium) that publishes the lo-fi
+     stream into a CORD-07 LiveKit room with Armada's exact E2EE settings.
+     Driven from Python (bot/media/engine.py): PCM arrives over a localhost
+     WebSocket, control happens via window.lofiConnect(), events flow back
+     through the window.lofiEvent binding. -->
+<html><head><meta charset="utf-8"><title>lowfi media engine</title></head>
+<body>
+<script type="module">
+import { Room, RoomEvent, Track, BaseKeyProvider } from "./vendor/livekit-client.esm.mjs";
+
+const te = new TextEncoder();
+const hex2buf = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
+const emit = (type, data = {}) =>
+  window.lofiEvent ? window.lofiEvent(JSON.stringify({ type, ...data })) : console.log(type, data);
+
+// Armada's SenderKeyProvider, verbatim settings (PersistentVoiceRoom.tsx):
+// per-identity keys, AES-256-GCM, no ratcheting, external deterministic material.
+class SenderKeyProvider extends BaseKeyProvider {
+  constructor() { super({ sharedKey: false, ratchetWindowSize: 0, failureTolerance: -1, keySize: 256 }); }
+  async setSenderMaterial(material, identity) {
+    const key = await crypto.subtle.importKey("raw", material.slice().buffer, "HKDF", false,
+      ["deriveBits", "deriveKey"]);
+    this.onSetEncryptionKey(key, identity);
+  }
+}
+
+let room = null;
+let ws = null;
+
+window.lofiConnect = async (cfg) => {
+  // cfg: { url, token, identity, senderKeyHex, wsPort }
+  try {
+    const keyProvider = new SenderKeyProvider();
+    const worker = new Worker(new URL("./vendor/livekit-client.e2ee.worker.mjs", import.meta.url), { type: "module" });
+    room = new Room({ e2ee: { keyProvider, worker } });
+
+    room.on(RoomEvent.Disconnected, (reason) => emit("disconnected", { reason: String(reason) }));
+    room.on(RoomEvent.Reconnecting, () => emit("reconnecting"));
+    room.on(RoomEvent.Reconnected, () => emit("reconnected"));
+    room.on(RoomEvent.EncryptionError, (e) => emit("encryption_error", { message: e.message }));
+
+    // Radio publishes only — never subscribe to (and fail to decrypt) listeners.
+    await room.connect(cfg.url, cfg.token, { autoSubscribe: false });
+    await keyProvider.setSenderMaterial(hex2buf(cfg.senderKeyHex), cfg.identity);
+    await room.setE2EEEnabled(true);
+    emit("connected", { identity: room.localParticipant.identity });
+
+    // Audio path: WS (s16le stereo 48k) -> worklet ring buffer -> destination track
+    const ctx = new AudioContext({ sampleRate: 48000 });
+    await ctx.audioWorklet.addModule("./worklet.js");
+    const feeder = new AudioWorkletNode(ctx, "pcm-feeder", {
+      numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
+    });
+    const dest = ctx.createMediaStreamDestination();
+    const gain = ctx.createGain();
+    gain.gain.value = cfg.volume ?? 1.0;   // master volume, set from bot config
+    feeder.connect(gain); gain.connect(dest);
+    window.lofiSetVolume = (v) => { gain.gain.value = v; emit("volume", { volume: v }); };
+    await ctx.resume();
+
+    feeder.port.onmessage = (e) => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(e.data));
+    };
+
+    ws = new WebSocket(`ws://127.0.0.1:${cfg.wsPort}`);
+    ws.binaryType = "arraybuffer";
+    ws.onmessage = (e) => feeder.port.postMessage(e.data, [e.data]);
+    ws.onopen = () => emit("pcm_ws_open");
+    ws.onclose = () => emit("pcm_ws_closed");
+
+    const track = dest.stream.getAudioTracks()[0];
+    await room.localParticipant.publishTrack(track, {
+      source: Track.Source.Microphone,
+      red: true,
+      dtx: false,           // music: never gate quiet passages
+      forceStereo: true,
+      audioPreset: { maxBitrate: 96_000 },
+    });
+    emit("published");
+  } catch (err) {
+    emit("error", { message: String(err && err.stack || err) });
+  }
+};
+
+window.lofiStop = async () => {
+  try { if (ws) ws.close(); if (room) await room.disconnect(); emit("stopped"); }
+  catch (err) { emit("error", { message: String(err) }); }
+};
+
+// Mute/unmute without leaving the room (the !music command).
+window.lofiSetMuted = async (muted) => {
+  try {
+    const pub = room?.localParticipant?.getTrackPublication(Track.Source.Microphone);
+    if (!pub) return emit("error", { message: "no track publication to (un)mute" });
+    if (muted) { await pub.mute(); } else { await pub.unmute(); }
+    emit("muted_state", { muted });
+  } catch (err) { emit("error", { message: String(err) }); }
+};
+
+emit("page_ready");
+</script>
+</body></html>

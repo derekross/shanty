@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<!-- Automated interop listener: joins the room exactly like an Armada client
+     (same SenderKeyProvider settings), decodes whatever it hears, and reports
+     RMS levels back to Python. If RMS is non-zero, the publisher's E2EE frames
+     are Armada-compatible — proven end to end. -->
+<html><head><meta charset="utf-8"><title>lowfi interop listener</title></head>
+<body>
+<script type="module">
+import { Room, RoomEvent, BaseKeyProvider, setLogLevel } from "./vendor/livekit-client.esm.mjs";
+setLogLevel("info");
+
+const te = new TextEncoder();
+const hex2buf = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
+const emit = (type, data = {}) =>
+  window.lofiEvent ? window.lofiEvent(JSON.stringify({ type, ...data })) : console.log(type, data);
+
+class SenderKeyProvider extends BaseKeyProvider {
+  constructor() { super({ sharedKey: false, ratchetWindowSize: 0, failureTolerance: -1, keySize: 256 }); }
+  async setSenderMaterial(material, identity) {
+    const key = await crypto.subtle.importKey("raw", material.slice().buffer, "HKDF", false,
+      ["deriveBits", "deriveKey"]);
+    this.onSetEncryptionKey(key, identity);
+  }
+}
+
+// voiceSenderKey(mediaKey, identity) — derive any participant's key like Armada does.
+async function voiceSenderKey(mediaHex, identity) {
+  const idHash = new Uint8Array(await crypto.subtle.digest("SHA-256", te.encode(identity)));
+  const label = te.encode("concord/voice-sender");
+  const info = new Uint8Array(label.length + 1 + 32);
+  info.set(label, 0); info.set(idHash, label.length + 1);
+  const ikm = await crypto.subtle.importKey("raw", hex2buf(mediaHex), "HKDF", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info }, ikm, 256);
+  return new Uint8Array(bits);
+}
+
+window.lofiListen = async (cfg) => {
+  // cfg: { url, token, mediaKeyHex }
+  try {
+    const keyProvider = new SenderKeyProvider();
+    const worker = new Worker(new URL("./vendor/livekit-client.e2ee.worker.mjs", import.meta.url), { type: "module" });
+    const room = new Room({ e2ee: { keyProvider, worker } });
+
+    const installKey = async (identity) =>
+      keyProvider.setSenderMaterial(await voiceSenderKey(cfg.mediaKeyHex, identity), identity);
+
+    room.on(RoomEvent.ParticipantConnected, (p) => { emit("participant", { identity: p.identity }); installKey(p.identity); });
+    room.on(RoomEvent.EncryptionError, (e) => emit("encryption_error", { message: e.message }));
+    room.on(RoomEvent.TrackSubscribed, async (track, _pub, p) => {
+      try {
+        emit("subscribed", { kind: track.kind, from: p.identity });
+        if (track.kind !== "audio") return;
+        track.attach();  // Chrome only pulls remote audio that has a sink
+        const ctx = new AudioContext({ sampleRate: 48000 });
+        const src = ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+        const an = ctx.createAnalyser(); an.fftSize = 2048;
+        const mute = ctx.createGain(); mute.gain.value = 0;
+        src.connect(an); an.connect(mute); mute.connect(ctx.destination); // keep graph rendered
+        await ctx.resume();
+        const buf = new Float32Array(an.fftSize);
+        setInterval(() => {
+          an.getFloatTimeDomainData(buf);
+          let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+          emit("rms", { from: p.identity, rms: Math.sqrt(s / buf.length) });
+        }, 500);
+      } catch (err) { emit("error", { message: String(err && err.stack || err) }); }
+    });
+
+    room.on(RoomEvent.ConnectionStateChanged, (s) => emit("connection_state", { state: String(s) }));
+    room.on(RoomEvent.TrackPublished, (pub, p) => emit("remote_track_published", { from: p.identity, kind: pub.kind }));
+
+    await room.connect(cfg.url, cfg.token);
+    await installKey(room.localParticipant.identity);
+    for (const p of room.remoteParticipants.values()) { emit("present", { identity: p.identity }); await installKey(p.identity); }
+    await room.setE2EEEnabled(true);
+    emit("listening", { identity: room.localParticipant.identity });
+
+    setInterval(() => {
+      const roster = [...room.remoteParticipants.values()].map((p) => ({
+        identity: p.identity,
+        tracks: [...p.trackPublications.values()].map((t) =>
+          `${t.kind}:${t.isSubscribed ? "sub" : "unsub"}:${t.isMuted ? "muted" : "live"}:${t.isEncrypted ? "enc" : "plain"}`),
+      }));
+      emit("roster", { state: String(room.state), roster });
+    }, 5000);
+  } catch (err) {
+    emit("error", { message: String(err && err.stack || err) });
+  }
+};
+
+emit("page_ready");
+</script>
+</body></html>

@@ -1,0 +1,16 @@
+[Unit]
+Description=Lo-fi generative music stream (phase 1 daemon)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/lowfisoapbox
+ExecStart=%h/lowfisoapbox/.venv/bin/python -m lofi.cli stream --fifo /tmp/lofi.pcm
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

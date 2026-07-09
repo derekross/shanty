@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<!-- CORD-07 E2EE interop check: subscribes to the bot's scratch room using
+     Armada's EXACT SenderKeyProvider settings (livekit-client, insertable-streams
+     worker). If you hear audio and the meter moves, the Python bot's frames are
+     wire-compatible with what real Armada clients decode.
+     Serve from bot/tools/ (vendor/ holds livekit-client copied from Armada's
+     node_modules) and open the URL printed by scratch_publish.py. -->
+<html>
+<head><meta charset="utf-8"><title>lowfi interop check</title>
+<style>
+  body { font-family: monospace; background: #14141b; color: #d8d8e0; padding: 2rem; max-width: 720px; margin: auto; }
+  button { font: inherit; padding: .6rem 1.4rem; background: #6d5acf; color: white; border: 0; border-radius: 6px; cursor: pointer; }
+  #meter { height: 18px; background: #262633; border-radius: 4px; margin: 1rem 0; overflow: hidden; }
+  #meter > div { height: 100%; width: 0; background: linear-gradient(90deg, #4caf7d, #e8c34a); transition: width 60ms linear; }
+  #log { white-space: pre-wrap; font-size: .85rem; color: #9a9ab0; }
+  .ok { color: #4caf7d; } .bad { color: #e05555; }
+</style></head>
+<body>
+<h2>lowfi · Armada E2EE interop check</h2>
+<button id="join">join &amp; listen</button>
+<div id="meter"><div></div></div>
+<div id="log"></div>
+<script type="module">
+import { Room, RoomEvent, BaseKeyProvider } from "./vendor/livekit-client.esm.mjs";
+
+const q = new URLSearchParams(location.search);
+const URL_ = q.get("url"), TOKEN = q.get("token"), MEDIA = q.get("media");
+const logEl = document.getElementById("log");
+const bar = document.querySelector("#meter > div");
+const log = (m, cls = "") => { logEl.innerHTML += `<span class="${cls}">${m}</span>\n`; };
+
+if (!URL_ || !TOKEN || !MEDIA) log("missing ?url=&token=&media= params", "bad");
+
+// ── voiceSenderKey(mediaKey, identity) via WebCrypto (matches bot/cord.py) ──
+const te = new TextEncoder();
+const hex2buf = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
+async function voiceSenderKey(mediaHex, identity) {
+  const idHash = new Uint8Array(await crypto.subtle.digest("SHA-256", te.encode(identity)));
+  const label = te.encode("concord/voice-sender");
+  const info = new Uint8Array(label.length + 1 + 32);
+  info.set(label, 0); info.set(idHash, label.length + 1);
+  const ikm = await crypto.subtle.importKey("raw", hex2buf(mediaHex), "HKDF", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info }, ikm, 256);
+  return new Uint8Array(bits);
+}
+
+// ── Armada's SenderKeyProvider, verbatim settings ───────────────────────────
+class SenderKeyProvider extends BaseKeyProvider {
+  constructor() { super({ sharedKey: false, ratchetWindowSize: 0, failureTolerance: -1, keySize: 256 }); }
+  async setSenderMaterial(material, identity) {
+    const key = await crypto.subtle.importKey("raw", material.slice().buffer, "HKDF", false,
+      ["deriveBits", "deriveKey"]);
+    this.onSetEncryptionKey(key, identity);
+  }
+}
+
+document.getElementById("join").onclick = async () => {
+  const keyProvider = new SenderKeyProvider();
+  const worker = new Worker(new URL("./vendor/livekit-client.e2ee.worker.mjs", import.meta.url), { type: "module" });
+  const room = new Room({ e2ee: { keyProvider, worker } });
+
+  const installKey = async (identity) => {
+    await keyProvider.setSenderMaterial(await voiceSenderKey(MEDIA, identity), identity);
+    log(`installed sender key for ${identity}`);
+  };
+
+  room.on(RoomEvent.ParticipantConnected, (p) => { log(`participant: ${p.identity}`); installKey(p.identity); });
+  room.on(RoomEvent.ParticipantEncryptionStatusChanged, (enc, p) =>
+    log(`encryption ${enc ? "ON" : "OFF"} for ${p?.identity ?? "local"}`, enc ? "ok" : "bad"));
+  room.on(RoomEvent.EncryptionError, (e) => log(`encryption error: ${e.message}`, "bad"));
+  room.on(RoomEvent.TrackSubscribed, (track, _pub, p) => {
+    log(`subscribed to ${track.kind} from ${p.identity}`, "ok");
+    if (track.kind !== "audio") return;
+    const el = track.attach(); document.body.appendChild(el);
+    const ctx = new AudioContext();
+    const src = ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+    const an = ctx.createAnalyser(); an.fftSize = 2048; src.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    (function meter() {
+      an.getFloatTimeDomainData(buf);
+      const rms = Math.sqrt(buf.reduce((s, x) => s + x * x, 0) / buf.length);
+      bar.style.width = `${Math.min(100, rms * 700)}%`;
+      requestAnimationFrame(meter);
+    })();
+    log("→ if you hear lo-fi and the meter moves, interop is PROVEN", "ok");
+  });
+
+  await room.connect(URL_, TOKEN);
+  log(`connected as ${room.localParticipant.identity}`);
+  await installKey(room.localParticipant.identity);
+  for (const p of room.remoteParticipants.values()) { log(`already present: ${p.identity}`); await installKey(p.identity); }
+  await room.setE2EEEnabled(true);
+  log("E2EE enabled; waiting for the bot's track…");
+};
+</script>
+</body></html>

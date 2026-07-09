@@ -1,0 +1,17 @@
+# build / runtime artifacts
+.venv/
+.local/
+out/
+__pycache__/
+*.pyc
+*.log
+*.tgz
+
+# vendored livekit-client (fetched by deploy/setup.sh)
+vendor/
+
+# local test state (throwaway keys for scratch SFU rooms)
+bot/tools/.scratch-room.json
+
+# NOTE: the real secrets (nsec, community keys) live OUTSIDE the repo in
+# ~/.config/lowfi/shanty.json — never add config files with key material here.
