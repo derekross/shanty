@@ -46,7 +46,9 @@ def _serve_dir(directory: Path, port: int) -> http.server.ThreadingHTTPServer:
 class MediaEngine:
     """One headless Chromium page publishing one audio track."""
 
-    def __init__(self, http_port: int = 8477, ws_port: int = 8478):
+    def __init__(self, http_port: int = 0, ws_port: int = 0):
+        # Default 0 = ephemeral: the OS picks free ports, so a leaked socket
+        # from a torn-down session can never collide with the next one.
         self.http_port = http_port
         self.ws_port = ws_port
         self.events: asyncio.Queue[dict] = asyncio.Queue()
@@ -54,6 +56,7 @@ class MediaEngine:
         self.sent_frames = 0
         self._pcm_ws = None
         self._httpd = None
+        self._ws_server = None
         self._pw = None
         self._browser = None
         self.page = None
@@ -61,7 +64,9 @@ class MediaEngine:
     # -- lifecycle -----------------------------------------------------------
     async def start(self, page_name: str = "publisher.html") -> None:
         self._httpd = _serve_dir(MEDIA_DIR, self.http_port)
+        self.http_port = self._httpd.server_address[1]
         self._ws_server = await websockets.serve(self._on_pcm_ws, "127.0.0.1", self.ws_port)
+        self.ws_port = self._ws_server.sockets[0].getsockname()[1]
         self._pw = await async_playwright().start()
         self._browser = await self._pw.chromium.launch(
             headless=True,
@@ -86,18 +91,36 @@ class MediaEngine:
         log.info("media page ready (%s)", page_name)
 
     async def stop(self) -> None:
+        """Tear everything down. Every step is individually guarded: a failure
+        in one must never leak the rest (a leaked HTTP socket once wedged the
+        bot in an Address-already-in-use rejoin loop for days)."""
         try:
             if self.page:
                 await self.page.evaluate("window.lofiStop && window.lofiStop()")
         except Exception:
             pass
-        if self._browser:
-            await self._browser.close()
-        if self._pw:
-            await self._pw.stop()
-        self._ws_server.close()
-        if self._httpd:
-            self._httpd.shutdown()
+        try:
+            if self._browser:
+                await self._browser.close()
+        except Exception as e:
+            log.warning("browser close failed: %s", e)
+        try:
+            if self._pw:
+                await self._pw.stop()
+        except Exception as e:
+            log.warning("playwright stop failed: %s", e)
+        try:
+            if self._ws_server:
+                self._ws_server.close()
+        except Exception as e:
+            log.warning("ws server close failed: %s", e)
+        try:
+            if self._httpd:
+                self._httpd.shutdown()
+                self._httpd.server_close()  # shutdown() alone leaves the socket bound
+        except Exception as e:
+            log.warning("http server close failed: %s", e)
+        self._browser = self._pw = self._ws_server = self._httpd = self.page = None
 
     # -- events ----------------------------------------------------------------
     def _on_page_event(self, payload: str) -> None:

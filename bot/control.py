@@ -82,7 +82,11 @@ def fold_channels(editions: list[Edition]) -> list[ChannelInfo]:
             continue
         out.append(ChannelInfo(
             channel_id=eid, name=str(meta.get("name", "")),
-            private=bool(meta.get("private")), voice=bool(meta.get("voice")),
+            private=bool(meta.get("private")),
+            # Armada 5fee21b dropped the per-channel voice flag — every channel
+            # is callable now, so an ABSENT flag means voice-capable. Old
+            # metadata that still carries voice:false is honored.
+            voice=bool(meta.get("voice", True)),
             deleted=bool(meta.get("deleted"))))
     return [c for c in out if not c.deleted]
 
@@ -102,5 +106,5 @@ async def resolve_channel(community_root: bytes, community_id: bytes, epoch: int
                          + ", ".join(c.channel_id for c in matches))
     ch = matches[0]
     if not ch.voice:
-        log.warning("channel %r is not marked voice:true — calls may not work there", name)
+        log.warning("channel %r explicitly disables voice — calls may not work there", name)
     return ch
