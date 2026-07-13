@@ -75,6 +75,10 @@ class MediaEngine:
                 "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
+                # The chrome_sandbox binary lacks the SUID bit under Playwright's
+                # local install (can't chmod 4755 without root), so Chromium fails
+                # to start unless we disable the sandbox explicitly.
+                "--no-sandbox",
             ],
         )
         self.page = await self._browser.new_page()

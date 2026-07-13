@@ -41,7 +41,7 @@ RELAY_DICTIONARY = {
     1: "wss://jskitty.com/nostr",
     2: "wss://asia.vectorapp.io/nostr",
     3: "wss://relay.ditto.pub",
-    4: "wss://relay.dreamith.to",
+    4: "wss://nos.lol",
 }
 STOCK_RELAYS = [RELAY_DICTIONARY[i] for i in (1, 2, 3, 4)]
 
@@ -264,7 +264,7 @@ async def _resolve_channel_name(cfg: Config, name: str) -> str:
                                bytes.fromhex(cfg.community_id),
                                cfg.root_epoch, cfg.relays, name)
     print(f"resolved channel {name!r} -> {ch.channel_id[:16]}… "
-          f"({'private' if ch.private else 'public'}{', voice' if ch.voice else ''})")
+          f"({'private' if ch.private else 'public'})")
     return ch.channel_id
 
 

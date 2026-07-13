@@ -23,7 +23,7 @@ class TestFragment:
         got_token, relays = decode_fragment(frag)
         assert got_token == token
         assert relays == ["wss://jskitty.com/nostr", "wss://asia.vectorapp.io/nostr",
-                          "wss://relay.ditto.pub", "wss://relay.dreamith.to"]
+                          "wss://relay.ditto.pub", "wss://nos.lol"]
 
     def test_explicit_relays(self):
         token = bytes([9] * 16)

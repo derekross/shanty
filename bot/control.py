@@ -39,7 +39,6 @@ class ChannelInfo:
     channel_id: str
     name: str
     private: bool
-    voice: bool
     deleted: bool
 
 
@@ -82,7 +81,7 @@ def fold_channels(editions: list[Edition]) -> list[ChannelInfo]:
             continue
         out.append(ChannelInfo(
             channel_id=eid, name=str(meta.get("name", "")),
-            private=bool(meta.get("private")), voice=bool(meta.get("voice")),
+            private=bool(meta.get("private")),
             deleted=bool(meta.get("deleted"))))
     return [c for c in out if not c.deleted]
 
@@ -95,12 +94,9 @@ async def resolve_channel(community_root: bytes, community_id: bytes, epoch: int
         raise SystemExit("no channels found on the Control plane — wrong relays or keys?")
     matches = [c for c in channels if c.name.lower() == name.lower()]
     if not matches:
-        listing = ", ".join(f"{c.name}{' 🔊' if c.voice else ''}" for c in channels)
+        listing = ", ".join(f"{c.name}{' 🔒' if c.private else ''}" for c in channels)
         raise SystemExit(f"no channel named {name!r}; community has: {listing}")
     if len(matches) > 1:
         raise SystemExit(f"{len(matches)} channels named {name!r} — use --channel-id: "
                          + ", ".join(c.channel_id for c in matches))
-    ch = matches[0]
-    if not ch.voice:
-        log.warning("channel %r is not marked voice:true — calls may not work there", name)
-    return ch
+    return matches[0]

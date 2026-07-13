@@ -31,7 +31,7 @@ class TestControlPlane:
             make_control_wrap(control, admin_sk, chan_a, 1,
                               {"name": "general", "private": False}),
             make_control_wrap(control, admin_sk, chan_b, 1,
-                              {"name": "lofi lounge", "private": False, "voice": True}),
+                              {"name": "lofi lounge", "private": False}),
             # A later edition renames channel A — fold must pick version 2.
             make_control_wrap(control, admin_sk, chan_a, 2,
                               {"name": "general-chat", "private": False}),
@@ -50,7 +50,6 @@ class TestControlPlane:
         channels = fold_channels(editions)
         by_name = {c.name: c for c in channels}
         assert set(by_name) == {"general-chat", "lofi lounge"}
-        assert by_name["lofi lounge"].voice is True
         assert by_name["lofi lounge"].channel_id == chan_b
         assert by_name["general-chat"].channel_id == chan_a
 

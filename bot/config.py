@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 DEFAULT_PATH = Path.home() / ".config" / "lowfi" / "shanty.json"
-DEFAULT_RELAYS = ["wss://relay.ditto.pub", "wss://relay.dreamith.to"]
+DEFAULT_RELAYS = ["wss://relay.ditto.pub", "wss://nos.lol"]
 DEFAULT_BROKERS = ["https://armada.buzz"]
 
 
