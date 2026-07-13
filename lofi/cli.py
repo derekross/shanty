@@ -39,7 +39,7 @@ def cmd_render(args: argparse.Namespace) -> None:
 
 def cmd_stream(args: argparse.Namespace) -> None:
     from .daemon import run_stream
-    run_stream(fifo_path=args.fifo, buffer_tracks=args.buffer,
+    run_stream(fifo_paths=args.fifo or ["/tmp/lofi.pcm"], buffer_tracks=args.buffer,
                nowplaying_path=args.nowplaying)
 
 
@@ -55,7 +55,9 @@ def main() -> None:
     r.set_defaults(func=cmd_render)
 
     s = sub.add_parser("stream", help="run the endless 24/7 PCM stream daemon")
-    s.add_argument("--fifo", default="/tmp/lofi.pcm", help="FIFO path for s16le 48kHz stereo PCM")
+    s.add_argument("--fifo", action="append", default=None,
+                   help="FIFO path for s16le 48kHz stereo PCM; repeat for one per "
+                        "bot instance (default /tmp/lofi.pcm)")
     s.add_argument("--buffer", type=int, default=3, help="tracks to keep rendered ahead")
     s.add_argument("--nowplaying", default="/tmp/lofi-nowplaying.json",
                    help="JSON file updated with each track's metadata")

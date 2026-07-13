@@ -51,6 +51,7 @@ echo "== systemd user units =="
 mkdir -p ~/.config/systemd/user
 sed "s|%h/lowfisoapbox|$REPO_DIR|g" deploy/lofi-stream.service > ~/.config/systemd/user/lofi-stream.service
 sed "s|%h/lowfisoapbox|$REPO_DIR|g" deploy/shanty.service > ~/.config/systemd/user/shanty.service
+sed "s|%h/lowfisoapbox|$REPO_DIR|g" deploy/shanty@.service > ~/.config/systemd/user/shanty@.service
 systemctl --user daemon-reload
 loginctl enable-linger "$USER" || echo "run 'sudo loginctl enable-linger $USER' so services survive logout"
 

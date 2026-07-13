@@ -103,6 +103,31 @@ Deployment: `deploy/setup.sh` bootstraps a Debian/Ubuntu VPS (venv, local
 fluidsynth extraction, full-build headless Chromium, vendored livekit-client,
 systemd user units `lofi-stream.service` + `shanty.service`, linger).
 
+### Running in multiple communities
+
+Shanty is one radio station with one npub: every community hears the same
+simulcast broadcast, each in its own live channel, with its own jukebox queue
+(`!music` requests only play in the community that asked). One bot process per
+community, all fed by the single lo-fi daemon — its `--fifo` flag repeats, one
+FIFO per instance, and a slow or jukebox-paused instance never stalls the
+others (it drops to live like a real radio). Exactly one instance — the main
+one — publishes the NIP-38 now-playing status (kind 30315 is per-npub).
+
+Adding a community (say `nest`):
+
+```bash
+# 1. new instance config, identity copied from the main one
+.venv/bin/python -m bot.cli --config ~/.config/lowfi/shanty-nest.json init-instance
+
+# 2. join: invite Shanty's npub in Armada, or use a public invite link
+.venv/bin/python -m bot.cli --config ~/.config/lowfi/shanty-nest.json \
+    accept-invite --link 'https://…/invite/naddr1…#…' --channel-name <live channel>
+
+# 3. feed it: add "--fifo /tmp/lofi-nest.pcm" to lofi-stream.service, restart it,
+#    then start the instance
+systemctl --user enable --now shanty@nest
+```
+
 Notes that cost debugging time so you don't repeat them:
 - The Chromium **must** be the full build (`channel="chromium"`); the default
   Playwright headless shell renders no WebAudio and publishes silence.
@@ -114,16 +139,19 @@ Notes that cost debugging time so you don't repeat them:
 
 ## Phase-1/2 interface contract (music daemon → bot)
 
-The daemon emits **s16le, 48kHz, stereo, interleaved PCM** on a FIFO
-(default `/tmp/lofi.pcm`). Properties the bot can rely on:
+The daemon emits **s16le, 48kHz, stereo, interleaved PCM** on one or more
+FIFOs (default `/tmp/lofi.pcm`; `--fifo` repeats, one per bot instance).
+Properties the bot can rely on:
 
-- **Pacing is consumer-driven.** Writes block on the pipe; read at whatever
-  rate the SFU needs (100ms of audio = 19,200 bytes). No timestamps, no header —
-  raw frames.
+- **The daemon is the clock.** It broadcasts at wall-clock realtime (100ms of
+  audio = 19,200 bytes) into a ~3s per-reader buffer. Read at the SFU's pace;
+  lag beyond the buffer drops the oldest audio, not the connection. No
+  timestamps, no header — raw frames.
 - **The stream never ends and never goes silent** — tracks crossfade (3s,
-  equal power) and a vinyl-crackle bed runs even through intros/outros.
-- **Reader restarts are safe.** If the bot disconnects, the daemon blocks until
-  the FIFO is reopened, then resumes mid-stream.
+  equal power) and a vinyl bed runs even through intros/outros.
+- **Reader restarts are safe and independent.** A disconnected or paused
+  reader (e.g. while airing a jukebox request) rejoins live, and never stalls
+  the other FIFOs.
 - 48kHz is Opus/WebRTC-native: feed frames straight into a LiveKit
   `AudioSource` (livekit rtc SDK) with no resampling. CORD-07 handles the rest
   (blind broker token, E2EE frame encryption, signed presence).

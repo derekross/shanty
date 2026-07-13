@@ -1,0 +1,17 @@
+[Unit]
+Description=Shanty — Concord lo-fi radio bot (%i instance)
+After=network-online.target lofi-stream.service
+Wants=network-online.target
+Requires=lofi-stream.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/lowfisoapbox
+ExecStart=%h/lowfisoapbox/.venv/bin/python -m bot.cli --config %h/.config/lowfi/shanty-%i.json run
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

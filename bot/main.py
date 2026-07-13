@@ -106,7 +106,8 @@ class Shanty:
         self.commands = ChatCommands(self.cfg, self.stream, self.set_music,
                                      jukebox=self.jukebox)
         await self.commands.start()
-        await self.status.start()
+        if self.cfg.publish_status:  # exactly one instance per npub may publish
+            await self.status.start()
         attempt = 0
         while not self.stop_event.is_set():
             try:
@@ -143,10 +144,10 @@ class Shanty:
         log.info("music %s", "ON" if on else "OFF")
 
 
-async def run_bot() -> None:
+async def run_bot(cfg_path=cfg_mod.DEFAULT_PATH) -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    cfg = cfg_mod.load()
+    cfg = cfg_mod.load(cfg_path)
     if not (cfg.nsec_hex and cfg.community_root and cfg.channel_id):
         raise SystemExit("config incomplete — run create-identity and accept-invite first")
     # Catch up on any Refoundings that happened while we were down (CORD-06).

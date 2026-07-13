@@ -35,6 +35,7 @@ class Config:
     brokers: list[str] = field(default_factory=lambda: list(DEFAULT_BROKERS))
     fifo: str = "/tmp/lofi.pcm"
     nowplaying: str = "/tmp/lofi-nowplaying.json"  # lofi daemon's per-track JSON
+    publish_status: bool = True   # NIP-38 now-playing; exactly ONE instance per npub
     volume: float = 0.5           # master output gain (1.0 = full; 0.5 ≈ -6 dB)
     # Published profile media (kept here so kind-0 republishes never drop them)
     picture: str = ""
@@ -54,11 +55,16 @@ class Config:
 
 
 def load(path: Path = DEFAULT_PATH) -> Config:
+    path = Path(path)
     data = json.loads(path.read_text())
-    return Config(**data)
+    cfg = Config(**data)
+    cfg.path = path  # remembered so save() can't clobber another instance's file
+    return cfg
 
 
-def save(cfg: Config, path: Path = DEFAULT_PATH) -> None:
+def save(cfg: Config, path: Path | None = None) -> None:
+    path = Path(path) if path else getattr(cfg, "path", DEFAULT_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(cfg), indent=2))
     os.chmod(path, 0o600)
+    cfg.path = path
