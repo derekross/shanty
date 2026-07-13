@@ -12,11 +12,13 @@ Consume it like:
 
 from __future__ import annotations
 
+import json
 import os
 import queue
 import signal
 import sys
 import threading
+import time
 
 import numpy as np
 
@@ -59,6 +61,17 @@ class TrackQueue:
 
     def stop(self) -> None:
         self._stop.set()
+
+
+def write_nowplaying(path: str, track: TrackData) -> None:
+    """Atomically publish the current track's metadata for the bot to pick up."""
+    payload = {"name": track.name, "style": track.style, "seed": track.seed,
+               "bpm": round(track.bpm), "key": NOTE_NAMES[track.key_pc],
+               "started_at": int(time.time())}
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(payload, f)
+    os.replace(tmp, path)
 
 
 def _to_s16le(audio: np.ndarray) -> bytes:
@@ -104,7 +117,8 @@ class FifoWriter:
             os.remove(self.path)
 
 
-def run_stream(fifo_path: str = "/tmp/lofi.pcm", buffer_tracks: int = 3) -> None:
+def run_stream(fifo_path: str = "/tmp/lofi.pcm", buffer_tracks: int = 3,
+               nowplaying_path: str = "/tmp/lofi-nowplaying.json") -> None:
     signal.signal(signal.SIGPIPE, signal.SIG_IGN)  # handle EPIPE ourselves
     tq = TrackQueue(buffer_tracks)
     out = FifoWriter(fifo_path)
@@ -113,6 +127,10 @@ def run_stream(fifo_path: str = "/tmp/lofi.pcm", buffer_tracks: int = 3) -> None
         print("\n[lofi] shutting down", flush=True)
         tq.stop()
         out.close()
+        try:
+            os.remove(nowplaying_path)
+        except OSError:
+            pass
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)
@@ -128,6 +146,10 @@ def run_stream(fifo_path: str = "/tmp/lofi.pcm", buffer_tracks: int = 3) -> None
             print(f"[lofi] ♪ now playing: {track.name}  [{track.style}, seed {track.seed}]  "
                   f"{track.bpm:.0f}bpm in {NOTE_NAMES[track.key_pc]}  "
                   f"({len(audio)/SR/60:.1f} min)", flush=True)
+            try:
+                write_nowplaying(nowplaying_path, track)
+            except OSError as e:
+                print(f"[lofi] nowplaying write failed: {e}", flush=True)
 
         body = audio[:-xfade]
         for i in range(0, len(body), CHUNK_FRAMES):

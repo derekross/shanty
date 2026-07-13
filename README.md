@@ -90,6 +90,15 @@ can't produce Armada-compatible frames. Interop is proven end-to-end by
 - `!music on` / `!music off` — staff (owner/admin/mod); mute switch.
 - `!music skip` — staff; jump past the current requested track.
 
+**Now playing on Nostr** (`bot/status.py`): each track is published as a
+NIP-38 user status (kind 30315, `d=music`) on Shanty's profile — "streaming:
+misty raincoat 🎶", or "streaming: <title> — <artist> (requested) 🎶" for
+jukebox tracks — instead of spamming the channel. The lofi daemon drops
+per-track metadata in `/tmp/lofi-nowplaying.json` (`--nowplaying` to move it;
+`nowplaying` in the bot config must match); the bot polls it, dedupes, and
+attaches a 15-minute NIP-40 expiration so a dead bot's status self-clears.
+`!music off` and clean shutdown clear the status immediately.
+
 Deployment: `deploy/setup.sh` bootstraps a Debian/Ubuntu VPS (venv, local
 fluidsynth extraction, full-build headless Chromium, vendored livekit-client,
 systemd user units `lofi-stream.service` + `shanty.service`, linger).
@@ -118,8 +127,10 @@ The daemon emits **s16le, 48kHz, stereo, interleaved PCM** on a FIFO
 - 48kHz is Opus/WebRTC-native: feed frames straight into a LiveKit
   `AudioSource` (livekit rtc SDK) with no resampling. CORD-07 handles the rest
   (blind broker token, E2EE frame encryption, signed presence).
-- Track metadata (name, seed, BPM, key) is printed to the daemon's stdout —
-  phase 2 can parse it to post "now playing" into the channel.
+- Track metadata (name, style, seed, BPM, key, started_at) is written
+  atomically to a JSON file on each track start (default
+  `/tmp/lofi-nowplaying.json`, `--nowplaying PATH`) and printed to stdout —
+  the bot reads the file to publish its NIP-38 now-playing status.
 
 ## Layout
 

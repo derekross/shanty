@@ -17,6 +17,7 @@ from .cord import channel_group_key, voice_sender_key
 from .jukebox import Jukebox
 from .media.engine import MediaEngine
 from .presence import PresenceService
+from .status import StatusPublisher
 from .voice import (fetch_av_token, probe_av_broker, rendezvous_candidates,
                     voice_keys)
 
@@ -41,6 +42,7 @@ class Shanty:
         self.muted = False  # the !music switch flips this
         self.jukebox = Jukebox()
         self.commands: ChatCommands | None = None
+        self.status = StatusPublisher(cfg, self.jukebox, muted=lambda: self.muted)
 
     # -- rendezvous (CORD-07 §5) ------------------------------------------------
     async def pick_broker(self) -> str:
@@ -104,6 +106,7 @@ class Shanty:
         self.commands = ChatCommands(self.cfg, self.stream, self.set_music,
                                      jukebox=self.jukebox)
         await self.commands.start()
+        await self.status.start()
         attempt = 0
         while not self.stop_event.is_set():
             try:
@@ -128,6 +131,7 @@ class Shanty:
             attempt += 1
             log.info("rejoining in %ds", delay)
             await asyncio.sleep(delay)
+        await self.status.stop()
         await self.commands.stop()
         await self.presence.stop()
 

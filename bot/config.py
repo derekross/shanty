@@ -34,6 +34,7 @@ class Config:
     relays: list[str] = field(default_factory=lambda: list(DEFAULT_RELAYS))
     brokers: list[str] = field(default_factory=lambda: list(DEFAULT_BROKERS))
     fifo: str = "/tmp/lofi.pcm"
+    nowplaying: str = "/tmp/lofi-nowplaying.json"  # lofi daemon's per-track JSON
     volume: float = 0.5           # master output gain (1.0 = full; 0.5 ≈ -6 dB)
     # Published profile media (kept here so kind-0 republishes never drop them)
     picture: str = ""
