@@ -1,4 +1,4 @@
-# lowfisoapbox
+# Shanty
 
 A generative lo-fi music engine for Soapbox's 24/7 Concord live-channel stream.
 Claude composes every track: procedural music theory (jazz chord banks, voice
