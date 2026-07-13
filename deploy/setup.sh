@@ -10,7 +10,7 @@ echo "== python venv + deps =="
 python3 -m venv .venv
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q mido pedalboard soundfile \
-    livekit httpx coincurve cryptography nostr-sdk websockets playwright pytest
+    livekit httpx coincurve cryptography nostr-sdk websockets playwright pytest pytest-asyncio
 
 echo "== headless chromium (full build — the headless shell can't do WebAudio) =="
 .venv/bin/playwright install chromium
