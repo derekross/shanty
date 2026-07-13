@@ -29,6 +29,7 @@ def main() -> None:
 
     sub.add_parser("run", help="run the 24/7 radio bot")
     sub.add_parser("announce-join", help="publish the Guestbook join (member directory)")
+    sub.add_parser("follow-rekey", help="check for community Refoundings and adopt the new keys")
 
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
@@ -50,6 +51,12 @@ def main() -> None:
         from . import config as cfg_mod
         from .guestbook import announce
         asyncio.run(announce(cfg_mod.load()))
+    elif args.cmd == "follow-rekey":
+        from . import config as cfg_mod
+        from .rekey import follow_all
+        cfg = cfg_mod.load()
+        hops = asyncio.run(follow_all(cfg))
+        print(f"advanced {hops} epoch(s); root epoch is now {cfg.root_epoch}")
 
 
 if __name__ == "__main__":

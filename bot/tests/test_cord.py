@@ -59,6 +59,11 @@ class TestArmadaVectors:
             == VECTORS["voice_sender_hexid"]
         assert voice_sender_key(media, "alice-identity").hex() == VECTORS["voice_sender_alice"]
 
+    def test_recipient_locator(self):
+        from bot.cord import recipient_locator
+        assert recipient_locator(A, B, C, 1).hex() == VECTORS["recipient_locator_A_B_C_1"]
+        assert recipient_locator(A, B, bytes(32), 1).hex() == VECTORS["recipient_locator_A_B_Z_1"]
+
     def test_locators_and_commitments(self):
         assert grant_locator(A, B).hex() == VECTORS["grant_locator_A_B"]
         assert invite_bundle_key(bytes([7] * 16)).hex() == VECTORS["invite_bundle_key_7x16"]

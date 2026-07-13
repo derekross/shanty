@@ -18,5 +18,7 @@
   "grant_locator_A_B": "713ebaaab5e5abe7a6f5b359aa18aef61465dc8f2acf0537020332fc299fef5d",
   "invite_bundle_key_7x16": "94bf8b0d89e579ddaeccf8d9db3f5de5c86a1259c597f2560ff0120173bc5e1f",
   "community_id_A_B": "637fba842161c1360163b53a5c6ad5c77ddba0759949a5f6285fc5e9b6d114c0",
-  "epoch_commitment_2_A": "23e1c74ee668f8f84146165baff429ea7301aba7e4e7a2238f2eea1840b291b7"
+  "epoch_commitment_2_A": "23e1c74ee668f8f84146165baff429ea7301aba7e4e7a2238f2eea1840b291b7",
+  "recipient_locator_A_B_C_1": "1c9951b852c417d39d976e21a59367e6d27c6f142fca47a32c36fb370cc09267",
+  "recipient_locator_A_B_Z_1": "c96e1aae7b8fff0c13d07c03aca0cf984b6b62621dec1d890fa7bf0f2642aa72"
 }

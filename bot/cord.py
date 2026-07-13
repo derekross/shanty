@@ -174,6 +174,27 @@ def banlist_locator(community_id: bytes) -> bytes:
     return hkdf32(community_id, build_info(LABEL_BANLIST, ZERO32))
 
 
+LABEL_RECIPIENT_PSEUDONYM = "concord/recipient-pseudonym"
+LABEL_BASE_REKEY_PSEUDONYM = "concord/base-rekey-pseudonym"
+
+
+def recipient_locator(rotator_xonly: bytes, recipient_xonly: bytes,
+                      scope_id: bytes, new_epoch: int) -> bytes:
+    """A rekey blob's per-recipient locator (CORD-06 §2):
+    hkdf(rotator||recipient, "concord/recipient-pseudonym", scope_id, epoch)."""
+    _assert32("rotator_xonly", rotator_xonly)
+    _assert32("recipient_xonly", recipient_xonly)
+    return hkdf32(rotator_xonly + recipient_xonly,
+                  build_info(LABEL_RECIPIENT_PSEUDONYM, scope_id, new_epoch))
+
+
+def base_rekey_group_key(prior_root: bytes, community_id: bytes, new_epoch: int) -> GroupKey:
+    """The base-rotation (Refounding) announcement address for new_epoch."""
+    _assert32("prior_root", prior_root)
+    _assert32("community_id", community_id)
+    return group_key(LABEL_BASE_REKEY_PSEUDONYM, prior_root, community_id, new_epoch)
+
+
 def invite_bundle_key(token: bytes) -> bytes:
     """The public-invite bundle decrypt key, from the link's unlock token."""
     return hkdf32(token, build_info(LABEL_INVITE_KEY, ZERO32))

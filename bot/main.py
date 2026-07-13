@@ -113,6 +113,17 @@ class Shanty:
                 log.error("session failed: %s", e, exc_info=True)
             if self.stop_event.is_set():
                 break
+            # A failed session can mean the community rotated out from under us
+            # (Refounding) — check before retrying blind (CORD-06).
+            try:
+                from .rekey import follow_all
+                if await follow_all(self.cfg) > 0:
+                    log.warning("community re-founded — restarting with the new epoch")
+                    raise SystemExit(1)  # systemd relaunches us on fresh keys
+            except SystemExit:
+                raise
+            except Exception as e:
+                log.warning("rekey check failed: %s", e)
             delay = REJOIN_BACKOFF_S[min(attempt, len(REJOIN_BACKOFF_S) - 1)]
             attempt += 1
             log.info("rejoining in %ds", delay)
@@ -134,5 +145,11 @@ async def run_bot() -> None:
     cfg = cfg_mod.load()
     if not (cfg.nsec_hex and cfg.community_root and cfg.channel_id):
         raise SystemExit("config incomplete — run create-identity and accept-invite first")
+    # Catch up on any Refoundings that happened while we were down (CORD-06).
+    from .rekey import follow_all
+    hops = await follow_all(cfg)
+    if hops:
+        log.warning("advanced %d epoch(s) at startup — now at root epoch %d",
+                    hops, cfg.root_epoch)
     bot = Shanty(cfg)
     await bot.run()
