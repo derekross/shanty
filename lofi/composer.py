@@ -55,6 +55,7 @@ class Style:
     delay_prob: float                   # dotted-8th echo on melody/arp
     lowpass: tuple[float, float]
     crackle: tuple[float, float]
+    drum_gain: float = 0.6              # drum bus level in the mix
 
 
 STYLES = [
@@ -67,7 +68,7 @@ STYLES = [
           arp_prob=0.9, arp_programs=(98, 87, 81, 5),
           melody_prob=0.5, melody_programs=(80, 81, 5),
           minor_bias=0.85, delay_prob=0.85,
-          lowpass=(9000, 12000), crackle=(0.4, 0.9)),
+          lowpass=(4200, 5800), crackle=(0.05, 0.3), drum_gain=0.3),
     Style("chillsynth",
           tempo=(70, 85), swing=(0.03, 0.10),
           drum_patterns=("straight", "half", "boombap"), kit="retro",
@@ -77,7 +78,7 @@ STYLES = [
           arp_prob=0.55, arp_programs=(98, 5, 11),
           melody_prob=0.75, melody_programs=(11, 80, 4, 73),
           minor_bias=0.6, delay_prob=0.6,
-          lowpass=(8500, 11000), crackle=(0.6, 1.1)),
+          lowpass=(3800, 5200), crackle=(0.2, 0.6), drum_gain=0.3),
     Style("lofi-retro",
           tempo=(68, 80), swing=(0.08, 0.16),
           drum_patterns=("boombap", "boombap", "half"), kit="dusty",
@@ -87,7 +88,7 @@ STYLES = [
           arp_prob=0.3, arp_programs=(98, 11),
           melody_prob=0.85, melody_programs=(11, 4, 24, 59, 80),
           minor_bias=0.45, delay_prob=0.35,
-          lowpass=(8000, 10000), crackle=(0.8, 1.5)),
+          lowpass=(3500, 4800), crackle=(0.5, 1.0), drum_gain=0.3),
 ]
 STYLE_WEIGHTS = [0.5, 0.3, 0.2]  # Derek's taste: synthwave-forward (misty raincoat)
 
@@ -197,6 +198,7 @@ class Composer:
                 crackle=self.uni(style.crackle),
                 wobble_ms=float(rng.uniform(0.9, 2.2)),
                 delay_s=(0.75 * 60.0 / bpm) if rng.random() < style.delay_prob else 0.0,
+                drum_gain=style.drum_gain,
             ),
         )
 

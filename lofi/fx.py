@@ -12,6 +12,7 @@ from pedalboard import (
     LadderFilter,
     Limiter,
     LowpassFilter,
+    PeakFilter,
     Pedalboard,
     Reverb,
 )
@@ -28,6 +29,7 @@ class FxParams:
     crackle: float = 1.0
     wobble_ms: float = 1.6
     delay_s: float = 0.0  # tempo-synced echo on melody/arp; 0 = off
+    drum_gain: float = 0.6  # drum bus level in the mix
 
 
 def _fx(board: Pedalboard, audio: np.ndarray) -> np.ndarray:
@@ -111,24 +113,25 @@ def vinyl_bed(n_samples: int, seed: int = 0, crackle_level: float = 1.0) -> np.n
     out = np.zeros((n_samples, 2), dtype=np.float32)
 
     # Hiss: quiet filtered noise.
-    hiss = rng.standard_normal((n_samples, 2)).astype(np.float32) * 0.0016
+    hiss = rng.standard_normal((n_samples, 2)).astype(np.float32) * 0.0002
     hiss = Pedalboard([LowpassFilter(7000), HighpassFilter(800)])(hiss, SR)
     out += hiss
 
-    # Crackle: sparse ticks (~9 per second), varied size, lowpassed to soften.
-    n_ticks = int(n_samples / SR * 9 * crackle_level)
+    # Crackle: sparse ticks (~3 per second), varied size, lowpassed to soften.
+    # Kept well below the music — audible in gaps, not a constant scrape.
+    n_ticks = int(n_samples / SR * 3 * crackle_level)
     ticks = np.zeros(n_samples, dtype=np.float32)
     positions = rng.integers(0, n_samples - 64, size=n_ticks)
     for p in positions:
-        amp = rng.uniform(0.004, 0.05) * (3.0 if rng.random() < 0.04 else 1.0)  # occasional pop
+        amp = rng.uniform(0.002, 0.018) * (2.0 if rng.random() < 0.02 else 1.0)  # rare pop
         width = rng.integers(2, 14)
         ticks[p : p + width] += rng.standard_normal(width).astype(np.float32) * amp
     ticks_st = np.stack([ticks, np.roll(ticks, rng.integers(3, 40))], axis=1)
-    ticks_st = Pedalboard([LowpassFilter(5200), HighpassFilter(300)])(ticks_st, SR)
+    ticks_st = Pedalboard([LowpassFilter(3500), HighpassFilter(300)])(ticks_st, SR)
     out += ticks_st
 
     # Low turntable rumble.
-    rumble = rng.standard_normal((n_samples, 2)).astype(np.float32) * 0.004
+    rumble = rng.standard_normal((n_samples, 2)).astype(np.float32) * 0.002
     rumble = Pedalboard([LowpassFilter(90)])(rumble, SR)
     out += rumble
     return out
@@ -182,9 +185,12 @@ def master_chain(audio: np.ndarray, lowpass_hz: float = 9500.0) -> np.ndarray:
     """Glue: saturation, rounded top end, gentle compression, limiter."""
     audio = np.tanh(audio * 1.1).astype(np.float32)  # soft tape saturation
     board = Pedalboard([
-        HighpassFilter(cutoff_frequency_hz=28),
-        LadderFilter(mode=LadderFilter.Mode.LPF12, cutoff_hz=lowpass_hz, resonance=0.05),
-        Compressor(threshold_db=-16, ratio=2.2, attack_ms=25, release_ms=220),
+        HighpassFilter(cutoff_frequency_hz=55),
+        HighpassFilter(cutoff_frequency_hz=55),  # doubled: 24dB/oct against sub rumble
+        PeakFilter(cutoff_frequency_hz=500, gain_db=4.5, q=0.5),  # radio warmth
+        LadderFilter(mode=LadderFilter.Mode.LPF24, cutoff_hz=lowpass_hz, resonance=0.05),
+        Compressor(threshold_db=-20, ratio=4.0, attack_ms=5, release_ms=300),
+        Gain(gain_db=4.0),  # push transients into the limiter — smaller crest
         Limiter(threshold_db=-3.0, release_ms=120),
     ])
     out = _fx(board, audio)
@@ -205,19 +211,19 @@ def mix_track(stems: dict[str, np.ndarray], kick_times_s: list[float],
     n = len(next(iter(stems.values())))
     music = np.zeros((n, 2), dtype=np.float32)
     if "keys" in stems:
-        music += process_keys(stems["keys"]) * 0.9
+        music += process_keys(stems["keys"]) * 1.1
     if "pads" in stems:
-        music += process_pads(stems["pads"]) * 0.6
+        music += process_pads(stems["pads"]) * 0.65
     if "bass" in stems:
-        music += process_bass(stems["bass"]) * 0.7
+        music += process_bass(stems["bass"]) * 0.62
     if "melody" in stems:
-        music += process_melody(stems["melody"], fx.delay_s) * 0.75
+        music += process_melody(stems["melody"], fx.delay_s) * 0.9
     if "arp" in stems:
         music += process_arp(stems["arp"], fx.delay_s) * 0.5
     music *= sidechain_envelope(n, kick_times_s)[:, None]
     full = music
     if "drums" in stems:
-        full = full + process_drums(stems["drums"]) * 0.95
+        full = full + process_drums(stems["drums"]) * fx.drum_gain
     full = tape_wobble(full, seed=seed, depth_ms=fx.wobble_ms)
     full = full + vinyl_bed(n, seed=seed + 1, crackle_level=fx.crackle)
     return master_chain(full, lowpass_hz=fx.lowpass_hz)

@@ -127,11 +127,11 @@ def synth_kick(sr: int = SR, retro: bool = False) -> np.ndarray:
     if retro:
         freq = 48.0 + 100.0 * np.exp(-t / 0.03)
         body = np.sin(2 * np.pi * np.cumsum(freq) / sr) * _env(n, 0.11, sr)
-        click_amp, click_dur = 0.6, 0.004
+        click_amp, click_dur = 0.3, 0.004
     else:
-        freq = 43.0 + 67.0 * np.exp(-t / 0.045)
+        freq = 48.0 + 62.0 * np.exp(-t / 0.045)
         body = np.sin(2 * np.pi * np.cumsum(freq) / sr) * _env(n, 0.16, sr)
-        click_amp, click_dur = 0.4, 0.006
+        click_amp, click_dur = 0.2, 0.006
     knock = np.random.default_rng(7).standard_normal(int(click_dur * sr)).astype(np.float32) * click_amp
     knock *= _env(len(knock), 0.002, sr)
     out = body.astype(np.float32)
@@ -146,37 +146,41 @@ def synth_snare(rng: np.random.Generator, sr: int = SR, gated: bool = False) -> 
     noise = rng.standard_normal(n).astype(np.float32)
     if gated:
         noise = _one_pole_hp(noise, 300, sr)
-        noise = _one_pole_lp(noise, 8000, sr)
-        noise *= _env(n, 0.16, sr)
-        gate_at = int(0.13 * sr)
+        noise = _one_pole_lp(noise, 3500, sr)
+        noise *= _env(n, 0.10, sr)
+        gate_at = int(0.08 * sr)
         fade = int(0.006 * sr)
         noise[gate_at + fade:] = 0.0
         noise[gate_at : gate_at + fade] *= np.linspace(1.0, 0.0, fade, dtype=np.float32)
-        body_hz, body_amp, body_decay = 200.0, 0.35, 0.04
+        body_hz, body_amp, body_decay = 200.0, 0.5, 0.04
+        noise_mult, out_gain = 0.8, 0.28
     else:
         noise = _one_pole_hp(noise, 400, sr)
-        noise = _one_pole_lp(noise, 5500, sr)
+        noise = _one_pole_lp(noise, 3200, sr)
         noise *= _env(n, 0.055, sr)
         body_hz, body_amp, body_decay = 185.0, 0.5, 0.03
+        noise_mult, out_gain = 1.1, 0.17
     t = np.arange(n) / sr
     body = np.sin(2 * np.pi * body_hz * t).astype(np.float32) * _env(n, body_decay, sr) * body_amp
-    return np.tanh((noise * 1.3 + body) * 1.4) * 0.8
+    return np.tanh((noise * noise_mult + body) * 1.4) * out_gain
 
 
 def synth_hat(rng: np.random.Generator, open_hat: bool = False, sr: int = SR,
               bright: bool = False) -> np.ndarray:
     if bright:
-        dur = 0.22 if open_hat else 0.045
+        dur = 0.18 if open_hat else 0.038
         hp = 8000.0
+        gain = 0.38
     else:
         dur = 0.30 if open_hat else 0.055
         hp = 6500.0
+        gain = 0.4
     n = int(dur * sr)
     noise = rng.standard_normal(n).astype(np.float32)
     noise = _one_pole_hp(noise, hp, sr)
     noise = _one_pole_hp(noise, hp, sr)
     noise *= _env(n, dur * 0.35, sr)
-    return noise * 0.55
+    return noise * gain
 
 
 def _one_pole_lp(x: np.ndarray, cutoff: float, sr: int = SR) -> np.ndarray:
