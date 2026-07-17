@@ -17,6 +17,7 @@ from .cord import channel_group_key, voice_sender_key
 from .jukebox import Jukebox
 from .media.engine import MediaEngine
 from .presence import PresenceService
+from .rekey import follow_all
 from .status import StatusPublisher
 from .voice import (fetch_av_token, probe_av_broker, rendezvous_candidates,
                     voice_keys)
@@ -24,6 +25,11 @@ from .voice import (fetch_av_token, probe_av_broker, rendezvous_candidates,
 log = logging.getLogger("lowfi.shanty")
 
 REJOIN_BACKOFF_S = [5, 15, 60, 120, 300]
+REKEY_CHECK_INTERVAL_S = 300
+
+
+class Refounded(Exception):
+    """The community rotated under a live session; restart on fresh keys."""
 
 
 class Shanty:
@@ -79,13 +85,17 @@ class Shanty:
                                        announce=self._announce))
             disconnect = asyncio.create_task(
                 self.engine.wait_event("disconnected", timeout=None))
-            # Session ends when the page disconnects OR the audio pipeline dies.
+            rekey_watch = asyncio.create_task(self._watch_refounding())
+            # Session ends when the page disconnects, the audio pipeline dies,
+            # OR the community re-founds under us.
             done, pending = await asyncio.wait(
-                {feed, disconnect}, return_when=asyncio.FIRST_COMPLETED)
+                {feed, disconnect, rekey_watch}, return_when=asyncio.FIRST_COMPLETED)
             for t in pending:
                 t.cancel()
             for t in done:
                 exc = t.exception()
+                if isinstance(exc, Refounded):
+                    raise exc
                 if exc:
                     log.warning("session ending: %s", exc)
                 elif t is disconnect:
@@ -95,6 +105,21 @@ class Shanty:
             await self.presence.stop_heartbeat_and_leave()
             await self.engine.stop()
             self.engine = None
+
+    async def _watch_refounding(self) -> None:
+        """Poll for a Refounding while the session is healthy (CORD-06). The
+        old SFU room outlives a rotation, so a rotated-away session keeps
+        streaming without ever failing — this poll is the only in-session
+        signal that the community moved on without us."""
+        while True:
+            await asyncio.sleep(REKEY_CHECK_INTERVAL_S)
+            try:
+                hops = await follow_all(self.cfg)
+            except Exception as e:
+                log.warning("in-session rekey check failed: %s", e)
+                continue
+            if hops:
+                raise Refounded(f"advanced to root epoch {self.cfg.root_epoch}")
 
     # -- forever --------------------------------------------------------------------
     async def _announce(self, text: str) -> None:
@@ -113,6 +138,12 @@ class Shanty:
             try:
                 await self.run_session()
                 attempt = 0
+            except Refounded as e:
+                # The watcher already adopted the new root and saved the config;
+                # our in-memory keys are stale — only a relaunch re-derives them.
+                log.warning("community re-founded mid-session (%s) — "
+                            "restarting with the new epoch", e)
+                raise SystemExit(1)
             except Exception as e:
                 log.error("session failed: %s", e, exc_info=True)
             if self.stop_event.is_set():
@@ -120,7 +151,6 @@ class Shanty:
             # A failed session can mean the community rotated out from under us
             # (Refounding) — check before retrying blind (CORD-06).
             try:
-                from .rekey import follow_all
                 if await follow_all(self.cfg) > 0:
                     log.warning("community re-founded — restarting with the new epoch")
                     raise SystemExit(1)  # systemd relaunches us on fresh keys
@@ -151,7 +181,6 @@ async def run_bot(cfg_path=cfg_mod.DEFAULT_PATH) -> None:
     if not (cfg.nsec_hex and cfg.community_root and cfg.channel_id):
         raise SystemExit("config incomplete — run create-identity and accept-invite first")
     # Catch up on any Refoundings that happened while we were down (CORD-06).
-    from .rekey import follow_all
     hops = await follow_all(cfg)
     if hops:
         log.warning("advanced %d epoch(s) at startup — now at root epoch %d",
